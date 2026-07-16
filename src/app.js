@@ -29,8 +29,11 @@ app.set('trust proxy', 1);    //trust the rev proxy (nginx, render, heroku,etc)
     cors({
       origin: process.env.CORS_ORIGIN,
       credentials: true,
+      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     })
   );
+  
   app.use(morgan('dev'));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -50,14 +53,14 @@ app.set('trust proxy', 1);    //trust the rev proxy (nginx, render, heroku,etc)
       }),
       cookie: {
         httpOnly: true,
-        // secure: process.env.NODE_ENV || 'production',
-        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'development', // true in production (HTTPS)
+        sameSite: process.env.NODE_ENV === 'development' ? 'none' : 'lax', // 'none' for cross-origin in production
         maxAge: SESSION_MAX_AGE_MS, // 10 days
       },
       name: 'sessionId',
-      rolling: 'true' //any interaction(api calls) will refresh the session ttl
+      rolling: true // Note: should be boolean true, not string 'true'
     })
-  );
+);
 
   // Routes
   app.use(attachUserFromSession);
