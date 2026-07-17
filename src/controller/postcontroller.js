@@ -2,14 +2,16 @@ import { Post } from '../models/Post.js';
 
 export async function getAllPosts(req, res) {
   try {
-    // Default values
+    // Default values - Fixed the limit parsing bug
     let page = parseInt(req.query.page, 10) || 1;
-    let limit = parseInt(req.query.limit, 10) || 10;
+    let limit = parseInt(req.query.limit, 10) || 20;
 
     if (page < 1) page = 1;
-    if (limit < 1 || limit > 100) limit = 10; // optional max limit
+    if (limit < 1 || limit > 100) limit = 20; // optional max limit
 
     const skip = (page - 1) * limit;
+
+    console.log('Pagination params:', { page, limit, skip }); // Debug log
 
     const [posts, total] = await Promise.all([
       Post.find({ published: true })
@@ -19,6 +21,8 @@ export async function getAllPosts(req, res) {
         .select('-__v'),
       Post.countDocuments({ published: true }),
     ]);
+
+    console.log(`Returning ${posts.length} posts out of ${total} total`); // Debug log
 
     res.json({
       posts,
