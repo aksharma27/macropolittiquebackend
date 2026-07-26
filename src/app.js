@@ -5,17 +5,20 @@ import morgan from 'morgan';
 import session from 'express-session';
 import MongoStore from 'connect-mongo';
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
 import authRouter from './routes/authRoutes.js';
 import postsRouter from './routes/postRoutes.js';
 import { attachUserFromSession } from './middleware/authMiddleware.js';
 
+dotenv.config(); // Ensure environment variables are loaded
+
 export async function connectDB() {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('MongoDB connected');
+    console.log('✅ MongoDB connected');
   } catch (err) {
-    console.error('MongoDB connection error:', err);
+    console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   }
 }
@@ -24,20 +27,20 @@ export function createApp() {
   const app = express();
   app.set('trust proxy', 1);
 
-  // Security & logging middleware
+  // Security & logging
   app.use(helmet());
 
-  // 🔥 FIXED CORS CONFIGURATION
-  // const allowedOrigins = process.env.CORS_ORIGIN
-  //   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-  //   : ['http://localhost:3000'];
+  // ---------- CORS ----------
+  // Parse allowed origins from environment variable
 const allowedOrigins = [
   'https://macropolitique.in',
   'https://www.macropolitique.in',
   'https://macropolitiqueui-glz5.vercel.app',
   'http://localhost:3000'
 ];
-    console.log("Allowerd CORS orignis: ", allowedOrigins);
+
+  console.log('✅ Allowed CORS origins:', allowedOrigins);
+
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -46,11 +49,11 @@ const allowedOrigins = [
         if (allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
-          console.error('Blocked by CORS:', origin);
+          console.error('❌ Blocked by CORS:', origin);
           callback(new Error('Not allowed by CORS'));
         }
       },
-      credentials: true,
+      credentials: true, // Allow cookies to be sent
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
@@ -60,7 +63,7 @@ const allowedOrigins = [
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Session middleware
+  // ---------- Session ----------
   const clientPromise = connectDB().then(() => mongoose.connection.getClient());
   const SESSION_MAX_AGE_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
@@ -75,7 +78,9 @@ const allowedOrigins = [
       }),
       cookie: {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production', // ✅ fixed: true in production (HTTPS)
+        // ✅ In production (HTTPS) secure must be true
+        // ✅ For cross-origin, sameSite must be 'none'
+        secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: SESSION_MAX_AGE_MS,
       },
@@ -89,9 +94,9 @@ const allowedOrigins = [
   app.use('/auth', authRouter);
   app.use('/posts', postsRouter);
 
-  // Error handler
+  // Global error handler
   app.use((err, req, res, next) => {
-    console.error('Unknown err:', err);
+    console.error('❌ Unknown error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   });
 
