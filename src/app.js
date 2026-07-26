@@ -8,7 +8,7 @@ import mongoose from 'mongoose';
 
 import authRouter from './routes/authRoutes.js';
 import postsRouter from './routes/postRoutes.js';
-import {attachUserFromSession} from './middleware/authMiddleware.js';
+import { attachUserFromSession } from './middleware/authMiddleware.js';
 
 export async function connectDB() {
   try {
@@ -22,24 +22,39 @@ export async function connectDB() {
 
 export function createApp() {
   const app = express();
-app.set('trust proxy', 1);    //trust the rev proxy (nginx, render, heroku,etc)
+  app.set('trust proxy', 1);
+
   // Security & logging middleware
   app.use(helmet());
+
+  // 🔥 FIXED CORS CONFIGURATION
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000'];
+
   app.use(
     cors({
-      origin: 'http://localhost:3000'|| env.CORS_ORIGIN,
-      origin: process.env.CORS_ORIGIN,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          console.error('Blocked by CORS:', origin);
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
   );
-  
+
   app.use(morgan('dev'));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Session middleware (after DB connection is established)
+  // Session middleware
   const clientPromise = connectDB().then(() => mongoose.connection.getClient());
   const SESSION_MAX_AGE_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
@@ -50,26 +65,27 @@ app.set('trust proxy', 1);    //trust the rev proxy (nginx, render, heroku,etc)
       saveUninitialized: false,
       store: MongoStore.create({
         clientPromise,
-        ttl: Number(process.env.SESSION_TTL) || (10 * 24 * 60 * 60) // seconds
+        ttl: Number(process.env.SESSION_TTL) || 10 * 24 * 60 * 60,
       }),
       cookie: {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'development', // true in production (HTTPS)
-        sameSite: process.env.NODE_ENV === 'development' ? 'none' : 'lax', // 'none' for cross-origin in production
-        maxAge: SESSION_MAX_AGE_MS, // 10 days
+        secure: process.env.NODE_ENV === 'production', // ✅ fixed: true in production (HTTPS)
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: SESSION_MAX_AGE_MS,
       },
       name: 'sessionId',
-      rolling: true // Note: should be boolean true, not string 'true'
+      rolling: true,
     })
-);
+  );
 
   // Routes
   app.use(attachUserFromSession);
   app.use('/auth', authRouter);
   app.use('/posts', postsRouter);
 
+  // Error handler
   app.use((err, req, res, next) => {
-    console.error("Unknown err:", err);
+    console.error('Unknown err:', err);
     res.status(500).json({ error: 'Something went wrong' });
   });
 
