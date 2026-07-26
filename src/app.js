@@ -32,6 +32,7 @@ export function createApp() {
     ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
     : ['http://localhost:3000'];
 
+    console.log("Allowerd CORS orignis: ", allowedOrigins);
   app.use(
     cors({
       origin: (origin, callback) => {
