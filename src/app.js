@@ -28,10 +28,15 @@ export function createApp() {
   app.use(helmet());
 
   // 🔥 FIXED CORS CONFIGURATION
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000'];
-
+  // const allowedOrigins = process.env.CORS_ORIGIN
+  //   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  //   : ['http://localhost:3000'];
+const allowedOrigins = [
+  'https://macropolitique.in',
+  'https://www.macropolitique.in',
+  'https://macropolitiqueui-glz5.vercel.app',
+  'http://localhost:3000'
+];
     console.log("Allowerd CORS orignis: ", allowedOrigins);
   app.use(
     cors({
