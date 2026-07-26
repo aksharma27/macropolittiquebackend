@@ -27,6 +27,7 @@ app.set('trust proxy', 1);    //trust the rev proxy (nginx, render, heroku,etc)
   app.use(helmet());
   app.use(
     cors({
+      origin: 'http://localhost:3000'|| env.CORS_ORIGIN,
       origin: process.env.CORS_ORIGIN,
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
