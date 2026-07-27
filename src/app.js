@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 
 import authRouter from './routes/authRoutes.js';
 import postsRouter from './routes/postRoutes.js';
+import contactRouter from './routes/contactRoutes.js';
 import { attachUserFromSession } from './middleware/authMiddleware.js';
 
 dotenv.config(); // Ensure environment variables are loaded
@@ -93,6 +94,7 @@ const allowedOrigins = [
   app.use(attachUserFromSession);
   app.use('/auth', authRouter);
   app.use('/posts', postsRouter);
+  app.use('/contact', contactRouter);
 
   // Global error handler
   app.use((err, req, res, next) => {
