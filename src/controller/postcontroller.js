@@ -1,10 +1,31 @@
+// backend/controllers/postController.js
 import { Post } from '../models/Post.js';
 import { cloudinary } from '../config/cloudinary.js';
-import {Otp} from '../models/Otp.js';
+import { Otp } from '../models/Otp.js';
 import transporter from '../util/mailer.js';
 import crypto from 'crypto';
 import { VerifiedEmail } from '../models/VerifiedEmail.js';
 
+// ========== Helper: Extract public_id from Cloudinary URL ==========
+function extractPublicIdFromUrl(url) {
+  if (!url) return null;
+
+  try {
+    const parts = url.split('/');
+    const uploadIndex = parts.findIndex(part => part === 'upload');
+    if (uploadIndex === -1) return null;
+
+    const pathSegments = parts.slice(uploadIndex + 2); // skip version
+    const fullPath = pathSegments.join('/');
+    const publicId = fullPath.replace(/\.[^.]+$/, '');
+    return publicId;
+  } catch (error) {
+    console.error('Error extracting public_id:', error);
+    return null;
+  }
+}
+
+// ========== GET ALL PUBLISHED POSTS (with search & sort) ==========
 export async function getAllPosts(req, res) {
   try {
     let page = parseInt(req.query.page, 10) || 1;
@@ -17,10 +38,8 @@ export async function getAllPosts(req, res) {
 
     const skip = (page - 1) * limit;
 
-    // Build filter: only published posts
     let filter = { published: true };
 
-    // ✅ Only apply search if query has 3+ characters
     const trimmedSearch = search.trim();
     if (trimmedSearch.length >= 3) {
       const regex = new RegExp(trimmedSearch, 'i');
@@ -66,19 +85,17 @@ export async function getAllPosts(req, res) {
   }
 }
 
+// ========== CREATE POST ==========
 export async function createPostRequest(req, res) {
   try {
     const { title, author, authorEmail, content, published } = req.body;
     const isAdmin = req.user?.role === 'admin';
 
-    // If a file is uploaded but user is not admin, reject
     if (req.file && !isAdmin) {
       return res.status(403).json({ error: 'Only admins can upload images' });
     }
 
-    // Force published: false for non-admins
     const finalPublished = isAdmin ? (published || false) : false;
-
     const imageUrl = req.file ? req.file.path : '';
 
     const post = await Post.create({
@@ -87,7 +104,7 @@ export async function createPostRequest(req, res) {
       authorEmail,
       content,
       published: finalPublished,
-      imageUrl: isAdmin ? imageUrl : '', // admins can set image, others get empty
+      imageUrl: isAdmin ? imageUrl : '',
     });
 
     res.status(201).json(post);
@@ -97,31 +114,60 @@ export async function createPostRequest(req, res) {
   }
 }
 
+// ========== DELETE POST (with image deletion) ==========
 export async function deletePostByAdmin(req, res) {
   try {
-    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-    const post = await Post.findByIdAndDelete(req.params.id);
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // 1. Find the post first
+    const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    res.json({ message: 'Post deleted' });
+
+    // 2. Delete image from Cloudinary if exists
+    if (post.imageUrl) {
+      try {
+        const publicId = extractPublicIdFromUrl(post.imageUrl);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`Deleted Cloudinary image: ${publicId}`);
+        }
+      } catch (cloudErr) {
+        console.error('Cloudinary deletion error:', cloudErr);
+        // Continue to delete post even if image deletion fails
+      }
+    }
+
+    // 3. Delete post from DB
+    await Post.findByIdAndDelete(req.params.id);
+
+    res.json({ message: 'Post and associated image deleted successfully' });
   } catch (err) {
     console.error('deletePostByAdmin error:', err);
     res.status(500).json({ error: 'Failed to delete post' });
   }
 }
 
+// ========== GET ALL POSTS FOR ADMIN (unpublished) ==========
 export async function getAllPostForAdmin(req, res) {
   try {
-    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const posts = await Post.find({ published: false })
       .sort({ publishedOn: -1, createdAt: -1 })
       .select('-__v')
       .lean();
+
     const normalizedPosts = posts.map(post => {
       if (!post.imageUrl && post.image && post.image.url) {
         post.imageUrl = post.image.url;
       }
       return post;
     });
+
     res.json(normalizedPosts);
   } catch (err) {
     console.error('getAllPostForAdmin error:', err);
@@ -129,16 +175,22 @@ export async function getAllPostForAdmin(req, res) {
   }
 }
 
+// ========== APPROVE POST (publish) ==========
 export async function approvePostByAdmin(req, res) {
   try {
-    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const { id } = req.params;
     const post = await Post.findByIdAndUpdate(
       id,
       { published: true, publishedOn: new Date() },
       { new: true, runValidators: true }
     );
+
     if (!post) return res.status(404).json({ error: 'Post not found' });
+
     res.json({ message: 'Post approved successfully', post });
   } catch (err) {
     console.error('approvePostByAdmin error:', err);
@@ -146,6 +198,7 @@ export async function approvePostByAdmin(req, res) {
   }
 }
 
+// ========== EDIT POST (with image replacement & deletion) ==========
 export async function editPostByAdmin(req, res) {
   try {
     if (req.user?.role !== 'admin') {
@@ -155,55 +208,86 @@ export async function editPostByAdmin(req, res) {
     const { id } = req.params;
     const { title, content, published, removeImage } = req.body;
 
+    // 1. Find existing post to get old image
+    const existingPost = await Post.findById(id);
+    if (!existingPost) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // 2. Build update fields
     const updateFields = {};
     if (title !== undefined) updateFields.title = title;
     if (content !== undefined) updateFields.content = content;
     if (published !== undefined) updateFields.published = published;
 
-    // Only update image if a file is uploaded or removal is requested
+    // 3. Handle image replacement
+    let imageDeleted = false;
     if (req.file) {
+      // New image uploaded – delete old one if it exists
+      if (existingPost.imageUrl) {
+        try {
+          const publicId = extractPublicIdFromUrl(existingPost.imageUrl);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+            console.log(`Deleted old image: ${publicId}`);
+            imageDeleted = true;
+          }
+        } catch (cloudErr) {
+          console.error('Error deleting old image:', cloudErr);
+        }
+      }
       updateFields.imageUrl = req.file.path;
     } else if (removeImage === 'true') {
+      // Remove image explicitly
+      if (existingPost.imageUrl) {
+        try {
+          const publicId = extractPublicIdFromUrl(existingPost.imageUrl);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+            console.log(`Deleted image on removal: ${publicId}`);
+            imageDeleted = true;
+          }
+        } catch (cloudErr) {
+          console.error('Error deleting image on removal:', cloudErr);
+        }
+      }
       updateFields.imageUrl = '';
     }
 
+    // 4. If no fields to update, return early
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    // Always unset the legacy 'image' field
+    // 5. Update post – also unset legacy 'image' field
     const updateOperation = { $set: updateFields, $unset: { image: 1 } };
 
-    const post = await Post.findByIdAndUpdate(id, updateOperation, {
+    const updatedPost = await Post.findByIdAndUpdate(id, updateOperation, {
       new: true,
       runValidators: true,
     });
 
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-
-    res.json({ message: 'Post updated successfully', post });
+    res.json({ message: 'Post updated successfully', post: updatedPost });
   } catch (err) {
     console.error('editPostByAdmin error:', err);
     res.status(500).json({ error: 'Failed to update post' });
   }
 }
 
+// ========== ARTICLE OTP (send) ==========
 export const sendArticleOtp = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    // Generate 6-digit OTP
     const otp = crypto.randomInt(100000, 999999).toString();
 
-    // Save or update OTP for this email (purpose: article-verify)
     await Otp.findOneAndUpdate(
       { email, purpose: 'article-verify' },
       { otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
       { upsert: true }
     );
 
-    // Send email
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
@@ -218,6 +302,7 @@ export const sendArticleOtp = async (req, res) => {
   }
 };
 
+// ========== VERIFY ARTICLE OTP ==========
 export const verifyArticleOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -237,16 +322,13 @@ export const verifyArticleOtp = async (req, res) => {
       return res.status(400).json({ error: 'OTP expired' });
     }
 
-    // OTP verified – delete it
     await Otp.deleteOne({ _id: record._id });
 
-    //save email as verified (upsert)
     await VerifiedEmail.findOneAndUpdate(
       { email: email.trim().toLowerCase() },
       { verifiedAt: new Date() },
       { upsert: true }
     );
-
 
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
@@ -255,7 +337,7 @@ export const verifyArticleOtp = async (req, res) => {
   }
 };
 
-
+// ========== CHECK IF EMAIL IS VERIFIED ==========
 export const checkEmailVerified = async (req, res) => {
   try {
     const { email } = req.body;
