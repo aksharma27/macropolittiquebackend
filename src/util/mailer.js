@@ -1,24 +1,28 @@
 // utils/mailer.js
 import nodemailer from 'nodemailer';
-import dns from 'dns/promises';  // use promises for async resolution
+import dns from 'dns/promises';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Resolve IPv4 address of Gmail SMTP (cached at startup)
+// Hardcoded fallback IP (currently valid for smtp.gmail.com)
+const FALLBACK_IP = '142.251.4.108'; // update if needed
+
 let smtpHost = 'smtp.gmail.com';
 let smtpPort = 465;
 let secure = true;
 
+// Try to resolve IPv4; if fails, use hardcoded IP
 try {
   const { address } = await dns.lookup('smtp.gmail.com', { family: 4 });
-  smtpHost = address;  // use the IP directly
+  smtpHost = address;
   console.log(`✅ Resolved smtp.gmail.com IPv4: ${smtpHost}`);
 } catch (err) {
-  console.warn('⚠️ IPv4 resolution failed, falling back to hostname:', err.message);
-  // keep smtpHost as 'smtp.gmail.com'
+  console.warn(`⚠️ IPv4 resolution failed, using fallback IP ${FALLBACK_IP}`, err.message);
+  smtpHost = FALLBACK_IP;
 }
 
+// Create transporter with the determined host (IP or hostname)
 const transporter = nodemailer.createTransport({
   host: smtpHost,
   port: smtpPort,
@@ -27,12 +31,10 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  // Important: if we use an IP, we must tell TLS the expected hostname
   tls: {
-    servername: 'smtp.gmail.com',   // SNI and certificate validation
-    rejectUnauthorized: true,       // keep secure
+    servername: 'smtp.gmail.com', // always validate against the real domain
+    rejectUnauthorized: true,
   },
-  // Timeouts (optional)
   connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 15000,
