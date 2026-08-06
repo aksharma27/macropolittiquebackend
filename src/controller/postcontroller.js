@@ -5,6 +5,8 @@ import { Otp } from '../models/Otp.js';
 import transporter from '../util/mailer.js';
 import crypto from 'crypto';
 import { VerifiedEmail } from '../models/VerifiedEmail.js';
+import brevoApi from '../util/mailer.js';
+import Brevo from '@brevo/client';
 
 // ========== Helper: Extract public_id from Cloudinary URL ==========
 function extractPublicIdFromUrl(url) {
@@ -288,13 +290,17 @@ export const sendArticleOtp = async (req, res) => {
       { upsert: true }
     );
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Article Submission OTP',
-      text: `Your OTP for article verification is: ${otp}. It is valid for 10 minutes. Do not share this with anyone.`,
-    });
 
+    const sendSmtpEmail = new Brevo.sendSmtpEmail();
+    sendSmtpEmail.sender = {
+      email: process.env.BREVO_SENDER_EMAIL,
+      name: process.env.BREVO_SENDER_NAME,
+    };
+    sendSmtpEmail.to = [{ email }];
+    sendSmtpEmail.subject = 'Article Submission OTP';
+    sendSmtpEmail.textContent = `Your OTP for article verification is: ${otp}. It is valid for 10 minutes. Do not share this with anyone.`;
+    
+    await brevoApi.sendTransacEmail(sendSmtpEmail);
     res.json({ message: 'OTP sent to your email' });
   } catch (error) {
     console.error('sendArticleOtp error:', error);
