@@ -1,18 +1,26 @@
 // utils/mailer.js
 import nodemailer from 'nodemailer';
+import dns from 'dns';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
+dns.setDefaultResultOrder('ipv4first');
+
 const transporter = nodemailer.createTransport({
- service: 'gmail',
+ host: 'smtp.gmail.com',
+ port: 587,
+ secure: false, // STARTTLS
  auth: {
  user: process.env.EMAIL_USER,
- pass: process.env.EMAIL_PASS, // Gmail App Password
+ pass: process.env.EMAIL_PASS,
  },
- connectionTimeout: 10000,
- greetingTimeout: 10000,
- socketTimeout: 15000,
+ connectionTimeout: 15000,
+ greetingTimeout: 15000,
+ socketTimeout: 20000,
+ tls: {
+ rejectUnauthorized: true,
+ },
 });
 
 transporter.verify((error) => {
