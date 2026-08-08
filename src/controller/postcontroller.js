@@ -2,11 +2,9 @@
 import { Post } from '../models/Post.js';
 import { cloudinary } from '../config/cloudinary.js';
 import { Otp } from '../models/Otp.js';
-import transporter from '../util/mailer.js';
 import crypto from 'crypto';
 import { VerifiedEmail } from '../models/VerifiedEmail.js';
-import brevoApi from '../util/mailer.js';
-import Brevo from '@brevo/client';
+import resend from '../util/mailer.js';
 
 // ========== Helper: Extract public_id from Cloudinary URL ==========
 function extractPublicIdFromUrl(url) {
@@ -280,31 +278,71 @@ export async function editPostByAdmin(req, res) {
 export const sendArticleOtp = async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email format',
+      });
+    }
 
     const otp = crypto.randomInt(100000, 999999).toString();
 
     await Otp.findOneAndUpdate(
-      { email, purpose: 'article-verify' },
-      { otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
-      { upsert: true }
+      {
+        email: normalizedEmail,
+        purpose: 'article-verify',
+      },
+      {
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      },
+      {
+        upsert: true,
+        new: true,
+      }
     );
 
+    const { data, error } = await resend.emails.send({
+      from: `${process.env.RESEND_SENDER_NAME} <${process.env.RESEND_SENDER_EMAIL}>`,
+      to: [normalizedEmail],
+      subject: 'Article Submission OTP',
 
-    const sendSmtpEmail = new Brevo.sendSmtpEmail();
-    sendSmtpEmail.sender = {
-      email: process.env.BREVO_SENDER_EMAIL,
-      name: process.env.BREVO_SENDER_NAME,
-    };
-    sendSmtpEmail.to = [{ email }];
-    sendSmtpEmail.subject = 'Article Submission OTP';
-    sendSmtpEmail.textContent = `Your OTP for article verification is: ${otp}. It is valid for 10 minutes. Do not share this with anyone.`;
-    
-    await brevoApi.sendTransacEmail(sendSmtpEmail);
-    res.json({ message: 'OTP sent to your email' });
+      text: `Your OTP for article verification is: ${otp}. It is valid for 10 minutes. Do not share this with anyone.`,
+    });
+
+    if (error) {
+      console.error('Resend OTP error:', error);
+
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to send OTP',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'OTP sent successfully',
+    });
+
   } catch (error) {
     console.error('sendArticleOtp error:', error);
-    res.status(500).json({ error: 'Failed to send OTP' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to send OTP',
+    });
   }
 };
 

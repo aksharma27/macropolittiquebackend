@@ -1,6 +1,6 @@
 import { User } from '../models/User.js';
 import bcrypt from 'bcryptjs';
-import transporter from '../util/mailer.js';
+import resend from '../util/mailer.js';
 import crypto from 'crypto';
 
 
@@ -163,13 +163,13 @@ export async function forgotPassword(req, res) {
 
     // Send the email
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.RESEND_SENDER_EMAIL,
       to: user.email,
       subject: 'Password Reset OTP',
       text: `Your password reset OTP is: ${otp}. It is valid for 10 minutes. Do not share this with anyone.`,
     };
 
-    await transporter.sendMail(mailOptions);
+    await resend.emails.send(mailOptions);
 
     res.status(200).json({ message: 'If that email is registered, an OTP has been sent.' });
   } catch (error) {
