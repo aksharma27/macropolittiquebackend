@@ -8,7 +8,8 @@ import {
   approvePostByAdmin,
   sendArticleOtp,
   verifyArticleOtp, 
-  checkEmailVerified
+  checkEmailVerified,
+  getPostById
 } from '../controller/postcontroller.js';
 import { upload } from '../config/cloudinary.js';
 import {requireAuth, requireAdmin} from '../middleware/authMiddleware.js';
@@ -18,6 +19,7 @@ const router = express.Router();
 // Public routes
 router.get('/', getAllPosts);
 router.post('/', upload.single('image'), createPostRequest);
+router.get('/:id', getPostById);
 
 // OTP routes for article verification (public)
 router.post('/send-otp', sendArticleOtp);
