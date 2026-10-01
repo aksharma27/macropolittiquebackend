@@ -16,6 +16,9 @@ import {requireAuth, requireAdmin} from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+//admin route : 
+router.get('/all-posts', requireAdmin, getAllPostForAdmin);
+
 // Public routes
 router.get('/', getAllPosts);
 router.post('/', upload.single('image'), createPostRequest);
@@ -29,8 +32,8 @@ router.post('/check-email', checkEmailVerified);
 // Protected/admin routes (you’ll add auth middleware later)
 router.patch('/:id', requireAdmin, upload.single('image'), editPostByAdmin);
 router.post('/:id/approve', approvePostByAdmin);
+// router.get('/all-posts',  requireAdmin, getAllPostForAdmin);
 router.delete('/:id', requireAdmin, deletePostByAdmin);
-router.get('/all-posts',  requireAdmin, getAllPostForAdmin);
 
 
 export default router;
